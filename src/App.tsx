@@ -1,8 +1,16 @@
 import React from 'react'
 
+import Toolbar from './components/Toolbar/Toolbar'
+import Canvas from './components/Canvas/Canvas'
+import Layers from './components/Layers/Layers'
+
 const App: React.FC = () => {
   return (
-    <h1 className="text-3xl font-bold underline text-red-500">Hello world!</h1>
+    <div className="flex h-screen">
+      <Toolbar />
+      <Canvas />
+      <Layers />
+    </div>
   )
 }
 

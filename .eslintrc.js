@@ -11,5 +11,8 @@ module.exports = {
     project: './tsconfig.json'
   },
   plugins: ['react'],
-  rules: {}
-};
+  rules: {
+    'space-before-function-paren': 'off',
+    '@typescript-eslint/space-before-function-paren': 'off'
+  }
+}

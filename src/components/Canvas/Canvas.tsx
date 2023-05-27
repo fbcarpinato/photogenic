@@ -1,15 +1,74 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { useSelector } from 'react-redux'
+import { type RootState } from '../../store/store'
 import useWasm from '../../hooks/useWasm'
 
 const Canvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const wasm = useWasm('/wasm/draw.wasm')
   const drawScheduled = useRef(false)
 
+  const selectedTool = useSelector(
+    (state: RootState) => state.tool.selectedTool
+  )
+  const wasmPath = useSelector((state: RootState) => state.tool.wasmPath)
+  const wasm = useWasm(wasmPath)
+
+  const [toolFunction, setToolFunction] = useState<(...args: any) => void>()
+
+  const [isMouseDown, setIsMouseDown] = useState<boolean>(false)
+
+  const [pixelPointer, setPixelPointer] = useState<number | null>(null)
+  const [memory, setMemory] = useState<WebAssembly.Memory | null>(null)
+
   useEffect(() => {
-    if (wasm == null || canvasRef.current == null) return
+    import(`./tools/${selectedTool}.ts`)
+      .then((module) => {
+        setToolFunction(() => module.default)
+        console.log(module)
+      })
+      .catch((e) => {
+        console.log(e)
+      })
+  }, [selectedTool])
+
+  const updateCanvas = (): void => {
+    if (canvasRef.current == null || pixelPointer === null || memory === null) {
+      return
+    }
+    const ctx = canvasRef.current.getContext('2d') as CanvasRenderingContext2D
+
+    const width = canvasRef.current.width
+    const height = canvasRef.current.height
+
+    const imageData = new ImageData(
+      new Uint8ClampedArray(memory.buffer, pixelPointer, width * height * 4),
+      width,
+      height
+    )
+    ctx.putImageData(imageData, 0, 0)
+    drawScheduled.current = false
+  }
+
+  const performAction = (
+    mouseEvent: React.MouseEvent<HTMLCanvasElement, MouseEvent>
+  ): void => {
+    if (toolFunction != null && isMouseDown) {
+      toolFunction(wasm, canvasRef, pixelPointer, memory, mouseEvent)
+
+      if (!drawScheduled.current) {
+        drawScheduled.current = true
+        requestAnimationFrame(updateCanvas)
+      }
+    }
+  }
+
+  const resizeCanvas = (): void => {
+    if (wasm == null || canvasRef.current == null) {
+      return
+    }
 
     const style = window.getComputedStyle(canvasRef.current)
+
     const width = parseInt(style.getPropertyValue('width'))
     const height = parseInt(style.getPropertyValue('height'))
     canvasRef.current.width = width
@@ -19,66 +78,28 @@ const Canvas: React.FC = () => {
     const pixelPointer = initPixels(width, height)
     const memory = wasm.exports.memory as WebAssembly.Memory
 
-    const updateCanvas = (): void => {
-      if (
-        canvasRef.current == null ||
-        pixelPointer === null ||
-        memory === null
-      ) {
-        return
-      }
-      const ctx = canvasRef.current.getContext('2d') as CanvasRenderingContext2D
-      const imageData = new ImageData(
-        new Uint8ClampedArray(memory.buffer, pixelPointer, width * height * 4),
-        width,
-        height
-      )
-      ctx.putImageData(imageData, 0, 0)
-      drawScheduled.current = false
-    }
+    setPixelPointer(pixelPointer)
+    setMemory(memory)
+  }
 
-    const drawWithBrush = (e: MouseEvent): void => {
-      if (
-        wasm == null ||
-        canvasRef.current == null ||
-        pixelPointer === null ||
-        memory === null
-      ) {
-        return
-      }
-
-      const boundingBox = canvasRef.current.getBoundingClientRect()
-      const x = e.clientX - boundingBox.left
-      const y = e.clientY - boundingBox.top
-      const scale = canvasRef.current.width / boundingBox.width
-      const scaledX = Math.floor(x * scale)
-      const scaledY = Math.floor(y * scale)
-      const width = canvasRef.current.width
-      const height = canvasRef.current.height
-
-      const createColor = wasm.exports.create_color as CallableFunction
-      const freeColor = wasm.exports.free_color as CallableFunction
-      const draw = wasm.exports.draw as CallableFunction
-      const colorPtr = createColor(0, 0, 0, 255)
-      draw(pixelPointer, width, height, scaledX, scaledY, colorPtr)
-      freeColor(colorPtr)
-
-      if (!drawScheduled.current) {
-        drawScheduled.current = true
-        requestAnimationFrame(updateCanvas)
-      }
-    }
-
-    canvasRef.current.addEventListener('mousemove', drawWithBrush)
-
-    return () => {
-      if (canvasRef.current != null) {
-        canvasRef.current.removeEventListener('mousemove', drawWithBrush)
-      }
-    }
+  useEffect(() => {
+    resizeCanvas()
   }, [wasm, canvasRef])
 
-  return <canvas ref={canvasRef} />
+  return (
+    <canvas
+      ref={canvasRef}
+      onMouseDown={() => {
+        setIsMouseDown(true)
+      }}
+      onMouseUp={() => {
+        setIsMouseDown(false)
+      }}
+      onMouseMove={performAction}
+      // eslint-disable-next-line react/no-unknown-property
+      onResize={resizeCanvas}
+    />
+  )
 }
 
 export default Canvas
